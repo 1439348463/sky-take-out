@@ -3,6 +3,7 @@ package com.hmdp.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.lang.UUID;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
@@ -70,7 +71,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("手机号格式错误");
         }
 
-
         //Object cachecode = session.getAttribute("code");
         String cachecode = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
         String code = loginForm.getCode();
@@ -79,6 +79,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (cachecode == null || !cachecode.equals(code)) {
             return Result.fail("验证码错误");
         }
+        // 验证码校验通过后立即失效，避免在有效期内被重复使用
+        stringRedisTemplate.delete(LOGIN_CODE_KEY + phone);
 
         User user = query().eq("phone", phone).one();
         if (user == null) {
@@ -97,6 +99,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(LOGIN_USER_KEY + token, LOGIN_USER_TTL, TimeUnit.SECONDS);
         //session.setAttribute("user", BeanUtistringObjectMapl.copyProperties(user, UserDTO.class));
         return Result.ok(token);
+    }
+
+    @Override
+    public Result logout(String token) {
+        if (StrUtil.isBlank(token)) {
+            return Result.ok();
+        }
+        stringRedisTemplate.delete(LOGIN_USER_KEY + token);
+        return Result.ok();
     }
 
     @Override
