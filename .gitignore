@@ -32,3 +32,6 @@ build/
 ### VS Code ###
 .vscode/
 
+# Nginx runtime logs
+nginx-1.18.0/logs/
+
