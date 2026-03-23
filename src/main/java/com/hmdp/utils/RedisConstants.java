@@ -12,6 +12,9 @@ public class RedisConstants {
     public static final String CACHE_SHOP_KEY = "cache:shop:";
 
     public static final String CACHE_SHOPTYPE_KEY = "cache:shoptype:";
+    public static final String SHOP_ID_BLOOM_KEY = "bloom:shop:id";
+    public static final Long SHOP_ID_BLOOM_EXPECTED_INSERTIONS = 10000L;
+    public static final Double SHOP_ID_BLOOM_FPP = 0.01D;
 
     public static final String LOCK_SHOP_KEY = "lock:shop:";
     public static final Long LOCK_SHOP_TTL = 10L;

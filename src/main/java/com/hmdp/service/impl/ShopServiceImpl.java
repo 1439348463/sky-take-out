@@ -1,6 +1,5 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
@@ -13,7 +12,7 @@ import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
-import com.hmdp.utils.RedisConstants;
+import com.hmdp.utils.ShopBloomFilterManager;
 import com.hmdp.utils.SystemConstants;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
@@ -51,8 +50,17 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private CacheClient cacheClient;
 
+    @Resource
+    private ShopBloomFilterManager shopBloomFilterManager;
+
     @Override
     public Result queryById(Long id) {
+        if (id == null || id <= 0) {
+            return Result.fail("店铺不存在");
+        }
+        if (!shopBloomFilterManager.mightContain(id)) {
+            return Result.fail("店铺不存在");
+        }
 
         /*String shopJson = stringRedisTemplate.opsForValue().get(CACHE_SHOP_KEY + id);
         if (StrUtil.isNotBlank(shopJson)) {
@@ -82,7 +90,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
 
         if (shop == null) {
-            return Result.fail("店铺不存在");
+            shop = getById(id);
+            if (shop == null) {
+                return Result.fail("店铺不存在");
+            }
+            cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + id, shop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
         }
         return Result.ok(shop);
     }
@@ -216,6 +228,15 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     }
 
     @Override
+    public boolean save(Shop entity) {
+        boolean isSuccess = super.save(entity);
+        if (isSuccess && entity != null && entity.getId() != null) {
+            shopBloomFilterManager.add(entity.getId());
+        }
+        return isSuccess;
+    }
+
+    @Override
     @Transactional
     public Result update(Shop shop) {
         Long id = shop.getId();
@@ -225,6 +246,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         updateById(shop);
 
         stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
+        shopBloomFilterManager.add(id);
         return Result.ok();
     }
 
