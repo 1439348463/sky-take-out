@@ -39,3 +39,5 @@ src/test/resources
 
 src/test/jmeter
 
+jmeter.log
+

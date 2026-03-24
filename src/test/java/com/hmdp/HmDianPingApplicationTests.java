@@ -46,7 +46,7 @@ import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 class HmDianPingApplicationTests {
 
     private static final int NEW_USER_COUNT = 500;
-    private static final int TOKEN_TOTAL_COUNT = 1000;
+    private static final int TOKEN_TOTAL_COUNT = 5000;
     private static final Path TOKEN_FILE_PATH = Paths.get("src", "test", "resources", "token.csv");
 
     @Resource
@@ -126,8 +126,8 @@ class HmDianPingApplicationTests {
             int created = createUsers(need);
             log.info("用户数不足 {}，已自动补齐 {} 个测试用户", TOKEN_TOTAL_COUNT, created);
         }
-        List<User> users = userService.lambdaQuery()
-                .orderByAsc(User::getId)
+        List<User> users = userService.query()
+                .orderByAsc("id")
                 .last("limit " + TOKEN_TOTAL_COUNT)
                 .list();
         if (users.size() < TOKEN_TOTAL_COUNT) {
@@ -156,8 +156,8 @@ class HmDianPingApplicationTests {
     }
 
     private int createUsers(int targetCreateCount) {
-        Set<String> existsPhones = userService.lambdaQuery()
-                .select(User::getPhone)
+        Set<String> existsPhones = userService.query()
+                .select("phone")
                 .list()
                 .stream()
                 .map(User::getPhone)

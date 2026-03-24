@@ -33,6 +33,11 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles:
+        hmdp.seckill.order.create: 0.95, 0.99
+      percentiles-histogram:
+        hmdp.seckill.order.create: true
 logging:
   level:
     com.hmdp: debug
