@@ -37,3 +37,5 @@ nginx-1.18.0/logs/
 
 src/test/resources
 
+src/test/jmeter
+
