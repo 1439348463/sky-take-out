@@ -6,6 +6,7 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.entity.RedisData;
 import com.hmdp.entity.Shop;
+import com.hmdp.metrics.ShopCacheMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -24,9 +25,11 @@ import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
 public class CacheClient {
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final ShopCacheMetrics shopCacheMetrics;
 
-    public CacheClient(StringRedisTemplate stringRedisTemplate) {
+    public CacheClient(StringRedisTemplate stringRedisTemplate, ShopCacheMetrics shopCacheMetrics) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.shopCacheMetrics = shopCacheMetrics;
     }
 
     public void set(String key, Object value, Long time, TimeUnit unit){
@@ -70,6 +73,7 @@ public class CacheClient {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
         if (StrUtil.isBlank(json)) {
+            shopCacheMetrics.markCacheMiss();
             return null;
         }
         RedisData redisData = JSONUtil.toBean(json, RedisData.class);
@@ -77,20 +81,25 @@ public class CacheClient {
         LocalDateTime expireTime = redisData.getExpireTime();
 
         if(expireTime.isAfter(LocalDateTime.now())){
+            shopCacheMetrics.markCacheHit();
             return r;
         }
 
+        shopCacheMetrics.markCacheStale();
         String lockKey = LOCK_SHOP_KEY + id;
         boolean isLock = tryLock(lockKey);
 
         if(isLock){
+            shopCacheMetrics.markRebuildStart();
             CACHE_REBUILD_EXECUTOR.submit(() -> {
                 try {
                     //重建缓存
                     R r1 = dbFallback.apply(id);
                     //写入redis
                     this.setWithLogicalExpire(key, r1, time, unit);
+                    shopCacheMetrics.markRebuildSuccess();
                 } catch (Exception e) {
+                    shopCacheMetrics.markRebuildFail();
                     throw new RuntimeException(e);
                 } finally {
                     unlock(lockKey);

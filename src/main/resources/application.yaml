@@ -36,8 +36,10 @@ management:
     distribution:
       percentiles:
         hmdp.seckill.order.create: 0.95, 0.99
+        hmdp.shop.query: 0.95, 0.99
       percentiles-histogram:
         hmdp.seckill.order.create: true
+        hmdp.shop.query: true
 logging:
   level:
     com.hmdp: debug

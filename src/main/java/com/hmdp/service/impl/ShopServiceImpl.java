@@ -9,6 +9,7 @@ import com.hmdp.dto.Result;
 import com.hmdp.entity.RedisData;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
+import com.hmdp.metrics.ShopCacheMetrics;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
@@ -53,6 +54,9 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private ShopBloomFilterManager shopBloomFilterManager;
 
+    @Resource
+    private ShopCacheMetrics shopCacheMetrics;
+
     @Override
     public Result queryById(Long id) {
         if (id == null || id <= 0) {
@@ -62,41 +66,22 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return Result.fail("店铺不存在");
         }
 
-        /*String shopJson = stringRedisTemplate.opsForValue().get(CACHE_SHOP_KEY + id);
-        if (StrUtil.isNotBlank(shopJson)) {
-            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
-            return Result.ok(shop);
-        }
-        //判断命中的是否是空值
-        if(shopJson != null){
-            return Result.fail("店铺信息不存在");
-        }
-        Shop shop = getById(id);
-        if(shop == null){
-            stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
-            return Result.fail("店铺不存在");
-        }
-
-        stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
-*/
-        //解决缓存穿透
-        //Shop shop = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
-
-        //互斥锁解决缓存击穿
-        //Shop shop = queryWithMutex(id);
-
-        //逻辑过期解决缓存击穿
-        //Shop shop = queryWithLogicalExpire(id);
-        Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
-
-        if (shop == null) {
-            shop = getById(id);
+        long startNanos = System.nanoTime();
+        shopCacheMetrics.markQueryTotal();
+        try {
+            Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
             if (shop == null) {
-                return Result.fail("店铺不存在");
+                shopCacheMetrics.markDbFallback();
+                shop = getById(id);
+                if (shop == null) {
+                    return Result.fail("店铺不存在");
+                }
+                cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + id, shop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
             }
-            cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + id, shop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+            return Result.ok(shop);
+        } finally {
+            shopCacheMetrics.recordQuery(System.nanoTime() - startNanos);
         }
-        return Result.ok(shop);
     }
 
     private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
