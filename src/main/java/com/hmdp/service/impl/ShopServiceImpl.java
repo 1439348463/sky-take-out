@@ -5,6 +5,8 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.RedisData;
 import com.hmdp.entity.Shop;
@@ -44,6 +46,11 @@ import static com.hmdp.utils.RedisConstants.*;
  */
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
+    private static final Cache<Long, Shop> SHOP_LOCAL_CACHE = Caffeine.newBuilder()
+            .initialCapacity(256)
+            .maximumSize(10_000)
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .build();
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -62,6 +69,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         if (id == null || id <= 0) {
             return Result.fail("店铺不存在");
         }
+        Shop localShop = SHOP_LOCAL_CACHE.getIfPresent(id);
+        if (localShop != null) {
+            return Result.ok(localShop);
+        }
         if (!shopBloomFilterManager.mightContain(id)) {
             return Result.fail("店铺不存在");
         }
@@ -78,6 +89,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 }
                 cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + id, shop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
             }
+            SHOP_LOCAL_CACHE.put(id, shop);
             return Result.ok(shop);
         } finally {
             shopCacheMetrics.recordQuery(System.nanoTime() - startNanos);
@@ -231,6 +243,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         updateById(shop);
 
         stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
+        SHOP_LOCAL_CACHE.invalidate(id);
         shopBloomFilterManager.add(id);
         return Result.ok();
     }
