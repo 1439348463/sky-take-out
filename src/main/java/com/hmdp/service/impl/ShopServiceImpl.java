@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -50,7 +51,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private static final long SHOP_LOCAL_CACHE_MAX_SIZE = 10_000L;
     private static final long SHOP_LOCAL_CACHE_EXPIRE_MINUTES = 10L;
 
-    private static final Cache<Long, Shop> SHOP_LOCAL_CACHE = Caffeine.newBuilder()
+    private final Cache<Long, Shop> shopLocalCache = Caffeine.newBuilder()
             .initialCapacity(SHOP_LOCAL_CACHE_INITIAL_CAPACITY)
             .maximumSize(SHOP_LOCAL_CACHE_MAX_SIZE)
             .expireAfterWrite(SHOP_LOCAL_CACHE_EXPIRE_MINUTES, TimeUnit.MINUTES)
@@ -70,20 +71,19 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Override
     public Result queryById(Long id) {
-        if (id == null || id <= 0) {
-            return Result.fail("店铺不存在");
-        }
-        Shop localShop = SHOP_LOCAL_CACHE.getIfPresent(id);
-        if (localShop != null) {
-            return Result.ok(localShop);
-        }
-        if (!shopBloomFilterManager.mightContain(id)) {
-            return Result.fail("店铺不存在");
-        }
-
         long startNanos = System.nanoTime();
         shopCacheMetrics.markQueryTotal();
         try {
+            if (id == null || id <= 0) {
+                return Result.fail("店铺不存在");
+            }
+            Shop localShop = shopLocalCache.getIfPresent(id);
+            if (localShop != null) {
+                return Result.ok(localShop);
+            }
+            if (!shopBloomFilterManager.mightContain(id)) {
+                return Result.fail("店铺不存在");
+            }
             Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
             if (shop == null) {
                 shopCacheMetrics.markDbFallback();
@@ -93,7 +93,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 }
                 cacheClient.setWithLogicalExpire(CACHE_SHOP_KEY + id, shop, CACHE_SHOP_TTL, TimeUnit.MINUTES);
             }
-            SHOP_LOCAL_CACHE.put(id, shop);
+            shopLocalCache.put(id, shop);
             return Result.ok(shop);
         } finally {
             shopCacheMetrics.recordQuery(System.nanoTime() - startNanos);
@@ -247,9 +247,46 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         updateById(shop);
 
         stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
-        SHOP_LOCAL_CACHE.invalidate(shop.getId());
+        shopLocalCache.invalidate(shop.getId());
         shopBloomFilterManager.add(id);
         return Result.ok();
+    }
+
+    /**
+     * 删除店铺后同步清理 Redis 与 L1 本地缓存，避免后续查询命中过期数据。
+     * 支持 Long、Number 以及可解析为 Long 的字符串类型主键。
+     */
+    @Override
+    public boolean removeById(Serializable id) {
+        boolean isSuccess = super.removeById(id);
+        Long shopId = parseShopId(id);
+        if (isSuccess && shopId != null) {
+            stringRedisTemplate.delete(CACHE_SHOP_KEY + shopId);
+            shopLocalCache.invalidate(shopId);
+        }
+        return isSuccess;
+    }
+
+    private Long parseShopId(Serializable id) {
+        if (id == null) {
+            return null;
+        }
+        if (id instanceof Long) {
+            return (Long) id;
+        }
+        if (id instanceof Number) {
+            return ((Number) id).longValue();
+        }
+        if (id instanceof String) {
+            String strId = (String) id;
+            try {
+                long shopId = Long.parseLong(strId);
+                return shopId > 0 ? shopId : null;
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     @Override
