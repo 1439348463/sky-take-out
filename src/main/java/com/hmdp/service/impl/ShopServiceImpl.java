@@ -79,9 +79,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             }
             Shop localShop = shopLocalCache.getIfPresent(id);
             if (localShop != null) {
+                shopCacheMetrics.markL1CacheHit();
                 return Result.ok(localShop);
             }
             if (!shopBloomFilterManager.mightContain(id)) {
+                shopCacheMetrics.markBloomReject();
                 return Result.fail("店铺不存在");
             }
             Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);

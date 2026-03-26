@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 public class ShopCacheMetrics {
 
     private final Counter queryTotalCounter;
+    private final Counter l1CacheHitCounter;
+    private final Counter bloomRejectCounter;
     private final Counter cacheHitCounter;
     private final Counter cacheStaleCounter;
     private final Counter cacheMissCounter;
@@ -22,6 +24,8 @@ public class ShopCacheMetrics {
 
     public ShopCacheMetrics(MeterRegistry meterRegistry) {
         this.queryTotalCounter = meterRegistry.counter("hmdp.shop.query.total");
+        this.l1CacheHitCounter = meterRegistry.counter("hmdp.shop.query.l1.hit");
+        this.bloomRejectCounter = meterRegistry.counter("hmdp.shop.query.bloom.reject");
         this.cacheHitCounter = meterRegistry.counter("hmdp.shop.query.cache.hit");
         this.cacheStaleCounter = meterRegistry.counter("hmdp.shop.query.cache.stale");
         this.cacheMissCounter = meterRegistry.counter("hmdp.shop.query.cache.miss");
@@ -34,6 +38,14 @@ public class ShopCacheMetrics {
 
     public void markQueryTotal() {
         queryTotalCounter.increment();
+    }
+
+    public void markL1CacheHit() {
+        l1CacheHitCounter.increment();
+    }
+
+    public void markBloomReject() {
+        bloomRejectCounter.increment();
     }
 
     public void markCacheHit() {
