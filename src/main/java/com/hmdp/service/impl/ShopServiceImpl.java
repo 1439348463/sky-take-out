@@ -46,10 +46,14 @@ import static com.hmdp.utils.RedisConstants.*;
  */
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
+    private static final int SHOP_LOCAL_CACHE_INITIAL_CAPACITY = 256;
+    private static final long SHOP_LOCAL_CACHE_MAX_SIZE = 10_000L;
+    private static final long SHOP_LOCAL_CACHE_EXPIRE_MINUTES = 10L;
+
     private static final Cache<Long, Shop> SHOP_LOCAL_CACHE = Caffeine.newBuilder()
-            .initialCapacity(256)
-            .maximumSize(10_000)
-            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .initialCapacity(SHOP_LOCAL_CACHE_INITIAL_CAPACITY)
+            .maximumSize(SHOP_LOCAL_CACHE_MAX_SIZE)
+            .expireAfterWrite(SHOP_LOCAL_CACHE_EXPIRE_MINUTES, TimeUnit.MINUTES)
             .build();
 
     @Resource
@@ -243,7 +247,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         updateById(shop);
 
         stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
-        SHOP_LOCAL_CACHE.invalidate(id);
+        SHOP_LOCAL_CACHE.invalidate(shop.getId());
         shopBloomFilterManager.add(id);
         return Result.ok();
     }
