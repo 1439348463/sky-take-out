@@ -19,7 +19,7 @@ public interface ISeckillOutboxService extends IService<VoucherOrderOutbox> {
 
     void markConfirmed(Long outboxId);
 
-    void markPublishFailed(Long outboxId, String reason, int retryCount);
+    void markPublishFailed(Long outboxId, String reason);
 
     void markCompensatedFailed(Long outboxId, String reason);
 }

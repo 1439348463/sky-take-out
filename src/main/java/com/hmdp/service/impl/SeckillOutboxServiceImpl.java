@@ -75,8 +75,13 @@ public class SeckillOutboxServiceImpl extends ServiceImpl<VoucherOrderOutboxMapp
     }
 
     @Override
-    public void markPublishFailed(Long outboxId, String reason, int retryCount) {
-        int nextRetry = Math.min(retryCount + 1, MAX_PUBLISH_RETRY);
+    public void markPublishFailed(Long outboxId, String reason) {
+        VoucherOrderOutbox outbox = getById(outboxId);
+        if (outbox == null) {
+            return;
+        }
+        int currentRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
+        int nextRetry = Math.min(currentRetry + 1, MAX_PUBLISH_RETRY);
         int backoffSeconds = (int) Math.min(60L, 1L << Math.min(nextRetry, 6));
         int nextStatus = nextRetry >= MAX_PUBLISH_RETRY ? STATUS_FAILED : STATUS_NEW;
         update()
