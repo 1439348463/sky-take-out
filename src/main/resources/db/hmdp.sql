@@ -1282,4 +1282,25 @@ CREATE TABLE `tb_voucher_order`  (
 -- Records of tb_voucher_order
 -- ----------------------------
 
+-- ----------------------------
+-- Table structure for tb_voucher_order_outbox
+-- ----------------------------
+DROP TABLE IF EXISTS `tb_voucher_order_outbox`;
+CREATE TABLE `tb_voucher_order_outbox`  (
+  `id` bigint(20) NOT NULL COMMENT '主键(outbox id)',
+  `order_id` bigint(20) NOT NULL COMMENT '订单id',
+  `user_id` bigint(20) NOT NULL COMMENT '用户id',
+  `voucher_id` bigint(20) NOT NULL COMMENT '券id',
+  `payload` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '消息体',
+  `status` tinyint(1) NOT NULL DEFAULT 0 COMMENT '0-NEW,1-SENDING,2-DELIVERED,5-DEAD',
+  `retry_count` int(11) NOT NULL DEFAULT 0 COMMENT '发布重试次数(DELIVERED后复用为DLQ重放次数)',
+  `next_retry_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下次重试时间',
+  `last_error` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '最后错误',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_order_id`(`order_id`) USING BTREE,
+  INDEX `idx_status_next_retry`(`status`, `next_retry_time`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+
 SET FOREIGN_KEY_CHECKS = 1;

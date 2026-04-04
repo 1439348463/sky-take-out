@@ -7,19 +7,27 @@ import java.util.List;
 
 public interface ISeckillOutboxService extends IService<VoucherOrderOutbox> {
     int STATUS_NEW = 0;
-    int STATUS_PUBLISHING = 1;
-    int STATUS_CONFIRMED = 2;
-    int STATUS_FAILED = 3;
+    int STATUS_SENDING = 1;
+    int STATUS_DELIVERED = 2;
+    int STATUS_DEAD = 5;
 
     VoucherOrderOutbox createOrderOutbox(Long orderId, Long userId, Long voucherId);
 
     List<VoucherOrderOutbox> findPublishCandidates(int limit);
 
-    boolean markPublishing(Long outboxId, int expectedRetryCount);
+    boolean markSending(Long outboxId, int expectedRetryCount);
 
-    void markConfirmed(Long outboxId);
+    void markDelivered(Long outboxId, int expectedRetryCount);
 
-    void markPublishFailed(Long outboxId, String reason);
+    void markPublishFailed(Long outboxId, String reason, Integer expectedRetryCount);
 
-    void markCompensatedFailed(Long outboxId, String reason);
+    default void markPublishFailed(Long outboxId, String reason) {
+        markPublishFailed(outboxId, reason, null);
+    }
+
+    void markReturned(Long outboxId, String reason, Integer expectedRetryCount);
+
+    boolean recordDlqReplay(Long outboxId, int expectedReplayCount);
+
+    void markDead(Long outboxId, String reason);
 }

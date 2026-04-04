@@ -52,6 +52,13 @@ management:
       percentiles-histogram:
         hmdp.seckill.order.create: true
         hmdp.shop.query: true
+hmdp:
+  seckill:
+    outbox:
+      publish-batch-size: 100
+      publish-delay-ms: 200
+    dlq:
+      max-replay: 3
 logging:
   level:
     com.hmdp: debug

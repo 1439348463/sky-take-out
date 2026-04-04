@@ -1,6 +1,8 @@
 package com.hmdp.config;
 
+import com.hmdp.dto.SeckillCorrelationData;
 import com.hmdp.service.ISeckillOutboxService;
+import com.hmdp.utils.SeckillMqConstants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
@@ -20,7 +22,7 @@ public class RabbitTemplateConfig {
             }
             Long outboxId = Long.valueOf(correlationData.getId());
             if (ack) {
-                outboxService.markConfirmed(outboxId);
+                outboxService.markDelivered(outboxId, extractRetryCount(correlationData));
             } else {
                 outboxService.markPublishFailed(outboxId, "confirm_nack:" + cause, extractRetryCount(correlationData));
                 log.error("mq confirm nack, outboxId={}, cause={}", outboxId, cause);
@@ -29,30 +31,28 @@ public class RabbitTemplateConfig {
     }
 
     @Bean
-    public RabbitTemplate.ReturnsCallback seckillReturnsCallback(ISeckillOutboxService outboxService) {
-        return returnedMessage -> {
-            Message message = returnedMessage.getMessage();
-            String outboxIdHeader = message.getMessageProperties().getHeader("x-outbox-id");
+    public RabbitTemplate.ReturnCallback seckillReturnCallback(ISeckillOutboxService outboxService) {
+        return (Message message, int replyCode, String replyText, String exchange, String routingKey) -> {
+            Long outboxIdHeader = extractOutboxId(message);
             if (outboxIdHeader == null) {
                 return;
             }
-            Long outboxId = Long.valueOf(outboxIdHeader);
-            outboxService.markPublishFailed(outboxId,
-                    "returned:" + returnedMessage.getReplyCode() + ":" + returnedMessage.getReplyText(),
+            outboxService.markReturned(outboxIdHeader,
+                    "returned:" + replyCode + ":" + replyText,
                     extractRetryCount(message));
             log.error("mq returned, outboxId={}, replyCode={}, replyText={}",
-                    outboxId, returnedMessage.getReplyCode(), returnedMessage.getReplyText());
+                    outboxIdHeader, replyCode, replyText);
         };
     }
 
     @Bean
     public RabbitTemplate rabbitTemplate(org.springframework.amqp.rabbit.connection.ConnectionFactory connectionFactory,
                                          RabbitTemplate.ConfirmCallback seckillConfirmCallback,
-                                         RabbitTemplate.ReturnsCallback seckillReturnsCallback) {
+                                         RabbitTemplate.ReturnCallback seckillReturnCallback) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMandatory(true);
         rabbitTemplate.setConfirmCallback(seckillConfirmCallback);
-        rabbitTemplate.setReturnsCallback(seckillReturnsCallback);
+        rabbitTemplate.setReturnCallback(seckillReturnCallback);
         return rabbitTemplate;
     }
 
@@ -64,20 +64,32 @@ public class RabbitTemplateConfig {
     }
 
     private int extractRetryCount(Message message) {
-        Integer retryCount = message.getMessageProperties().getHeader("x-retry-count");
-        return retryCount == null ? 0 : retryCount;
+        Object header = message.getMessageProperties().getHeaders().get(SeckillMqConstants.HEADER_PUBLISH_RETRY_COUNT);
+        if (header instanceof Number) {
+            return ((Number) header).intValue();
+        }
+        if (header instanceof String) {
+            try {
+                return Integer.parseInt((String) header);
+            } catch (NumberFormatException e) {
+                log.warn("invalid publish retry header: {}", header);
+            }
+        }
+        return 0;
     }
 
-    public static class SeckillCorrelationData extends CorrelationData {
-        private final int retryCount;
-
-        public SeckillCorrelationData(String id, int retryCount) {
-            super(id);
-            this.retryCount = retryCount;
+    private Long extractOutboxId(Message message) {
+        Object header = message.getMessageProperties().getHeaders().get(SeckillMqConstants.HEADER_OUTBOX_ID);
+        if (header instanceof Number) {
+            return ((Number) header).longValue();
         }
-
-        public int getRetryCount() {
-            return retryCount;
+        if (header instanceof String) {
+            try {
+                return Long.valueOf((String) header);
+            } catch (NumberFormatException e) {
+                log.warn("invalid outbox id header: {}", header);
+            }
         }
+        return null;
     }
 }

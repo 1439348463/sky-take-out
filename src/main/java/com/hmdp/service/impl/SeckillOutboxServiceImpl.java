@@ -19,6 +19,7 @@ public class SeckillOutboxServiceImpl extends ServiceImpl<VoucherOrderOutboxMapp
         implements ISeckillOutboxService {
 
     private static final int MAX_PUBLISH_RETRY = 10;
+    private static final int PUBLISHING_TIMEOUT_SECONDS = 30;
 
     @Override
     public VoucherOrderOutbox createOrderOutbox(Long orderId, Long userId, Long voucherId) {
@@ -39,14 +40,17 @@ public class SeckillOutboxServiceImpl extends ServiceImpl<VoucherOrderOutboxMapp
         outbox.setRetryCount(0);
         outbox.setNextRetryTime(LocalDateTime.now());
         outbox.setLastError("");
-        save(outbox);
+        boolean saved = save(outbox);
+        if (!saved) {
+            throw new IllegalStateException("save voucher order outbox failed, outboxId=" + outboxId);
+        }
         return outbox;
     }
 
     @Override
     public List<VoucherOrderOutbox> findPublishCandidates(int limit) {
         List<VoucherOrderOutbox> list = query()
-                .in("status", STATUS_NEW, STATUS_PUBLISHING)
+                .in("status", STATUS_NEW, STATUS_SENDING)
                 .le("next_retry_time", LocalDateTime.now())
                 .orderByAsc("next_retry_time")
                 .last("limit " + limit)
@@ -55,51 +59,133 @@ public class SeckillOutboxServiceImpl extends ServiceImpl<VoucherOrderOutboxMapp
     }
 
     @Override
-    public boolean markPublishing(Long outboxId, int expectedRetryCount) {
+    public boolean markSending(Long outboxId, int expectedRetryCount) {
+        LocalDateTime now = LocalDateTime.now();
         return update()
-                .set("status", STATUS_PUBLISHING)
-                .set("updated_at", LocalDateTime.now())
+                .set("status", STATUS_SENDING)
+                .set("next_retry_time", now.plusSeconds(PUBLISHING_TIMEOUT_SECONDS))
+                .set("updated_at", now)
                 .eq("id", outboxId)
                 .eq("retry_count", expectedRetryCount)
-                .in("status", STATUS_NEW, STATUS_PUBLISHING)
+                .in("status", STATUS_NEW, STATUS_SENDING)
                 .update();
     }
 
     @Override
-    public void markConfirmed(Long outboxId) {
-        update()
-                .set("status", STATUS_CONFIRMED)
-                .set("updated_at", LocalDateTime.now())
+    public void markDelivered(Long outboxId, int expectedRetryCount) {
+        LocalDateTime now = LocalDateTime.now();
+        boolean updated = update()
+                .set("status", STATUS_DELIVERED)
+                .set("retry_count", 0)
+                .set("last_error", "")
+                .set("next_retry_time", now)
+                .set("updated_at", now)
                 .eq("id", outboxId)
+                .eq("status", STATUS_SENDING)
+                .eq("retry_count", expectedRetryCount)
                 .update();
+        if (!updated) {
+            log.debug("skip mark delivered, outbox state already changed, outboxId={}, retry={}", outboxId, expectedRetryCount);
+        }
     }
 
     @Override
-    public void markPublishFailed(Long outboxId, String reason) {
-        VoucherOrderOutbox outbox = getById(outboxId);
-        if (outbox == null) {
-            return;
+    public void markPublishFailed(Long outboxId, String reason, Integer expectedRetryCount) {
+        Integer currentRetry = expectedRetryCount;
+        if (currentRetry == null) {
+            VoucherOrderOutbox outbox = getById(outboxId);
+            if (outbox == null) {
+                return;
+            }
+            currentRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
         }
-        int currentRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
+        LocalDateTime now = LocalDateTime.now();
         int nextRetry = Math.min(currentRetry + 1, MAX_PUBLISH_RETRY);
         int backoffSeconds = (int) Math.min(60L, 1L << Math.min(nextRetry, 6));
-        int nextStatus = nextRetry >= MAX_PUBLISH_RETRY ? STATUS_FAILED : STATUS_NEW;
-        update()
+        int nextStatus = nextRetry >= MAX_PUBLISH_RETRY ? STATUS_DEAD : STATUS_NEW;
+        boolean updated = update()
                 .set("status", nextStatus)
                 .set("retry_count", nextRetry)
                 .set("last_error", reason == null ? "" : reason.substring(0, Math.min(reason.length(), 250)))
-                .set("next_retry_time", LocalDateTime.now().plusSeconds(backoffSeconds))
-                .set("updated_at", LocalDateTime.now())
+                .set("next_retry_time", now.plusSeconds(backoffSeconds))
+                .set("updated_at", now)
                 .eq("id", outboxId)
+                .eq("retry_count", currentRetry)
+                .eq("status", STATUS_SENDING)
+                .update();
+        if (!updated) {
+            log.debug("skip mark publish failed, outbox state already changed, outboxId={}, retry={}", outboxId, currentRetry);
+        }
+    }
+
+    @Override
+    public void markReturned(Long outboxId, String reason, Integer expectedRetryCount) {
+        Integer currentRetry = expectedRetryCount;
+        if (currentRetry == null) {
+            VoucherOrderOutbox outbox = getById(outboxId);
+            if (outbox == null) {
+                return;
+            }
+            currentRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int nextRetry = Math.min(currentRetry + 1, MAX_PUBLISH_RETRY);
+        int backoffSeconds = (int) Math.min(60L, 1L << Math.min(nextRetry, 6));
+        int nextStatus = nextRetry >= MAX_PUBLISH_RETRY ? STATUS_DEAD : STATUS_NEW;
+
+        boolean updatedSending = update()
+                .set("status", nextStatus)
+                .set("retry_count", nextRetry)
+                .set("last_error", reason == null ? "" : reason.substring(0, Math.min(reason.length(), 250)))
+                .set("next_retry_time", now.plusSeconds(backoffSeconds))
+                .set("updated_at", now)
+                .eq("id", outboxId)
+                .eq("status", STATUS_SENDING)
+                .eq("retry_count", currentRetry)
+                .update();
+        if (updatedSending) {
+            return;
+        }
+
+        VoucherOrderOutbox outbox = getById(outboxId);
+        if (outbox == null || outbox.getStatus() == null || outbox.getStatus() != STATUS_DELIVERED) {
+            return;
+        }
+        int deliveredRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
+        int deliveredNextRetry = Math.min(deliveredRetry + 1, MAX_PUBLISH_RETRY);
+        int deliveredNextStatus = deliveredNextRetry >= MAX_PUBLISH_RETRY ? STATUS_DEAD : STATUS_NEW;
+        update()
+                .set("status", deliveredNextStatus)
+                .set("retry_count", deliveredNextRetry)
+                .set("last_error", reason == null ? "" : reason.substring(0, Math.min(reason.length(), 250)))
+                .set("next_retry_time", now.plusSeconds(backoffSeconds))
+                .set("updated_at", now)
+                .eq("id", outboxId)
+                .eq("status", STATUS_DELIVERED)
+                .eq("retry_count", deliveredRetry)
                 .update();
     }
 
     @Override
-    public void markCompensatedFailed(Long outboxId, String reason) {
+    public boolean recordDlqReplay(Long outboxId, int expectedReplayCount) {
+        LocalDateTime now = LocalDateTime.now();
+        return update()
+                .set("retry_count", expectedReplayCount + 1)
+                .set("last_error", "dlq_replay_" + (expectedReplayCount + 1))
+                .set("updated_at", now)
+                .eq("id", outboxId)
+                .eq("status", STATUS_DELIVERED)
+                .eq("retry_count", expectedReplayCount)
+                .update();
+    }
+
+    @Override
+    public void markDead(Long outboxId, String reason) {
+        LocalDateTime now = LocalDateTime.now();
         update()
-                .set("status", STATUS_FAILED)
+                .set("status", STATUS_DEAD)
                 .set("last_error", reason == null ? "" : reason.substring(0, Math.min(reason.length(), 250)))
-                .set("updated_at", LocalDateTime.now())
+                .set("updated_at", now)
                 .eq("id", outboxId)
                 .update();
     }

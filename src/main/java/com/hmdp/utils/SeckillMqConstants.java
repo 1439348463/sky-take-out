@@ -13,5 +13,6 @@ public final class SeckillMqConstants {
     public static final String ROUTING_KEY_ORDER_DLX = "seckill.order.dlq";
     public static final String QUEUE_ORDER_DLQ = "seckill.order.dlq";
 
-    public static final String HEADER_REPLAY_COUNT = "x-replay-count";
+    public static final String HEADER_OUTBOX_ID = "x-outbox-id";
+    public static final String HEADER_PUBLISH_RETRY_COUNT = "x-publish-retry-count";
 }
