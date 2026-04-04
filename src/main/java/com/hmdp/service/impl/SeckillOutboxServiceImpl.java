@@ -152,11 +152,11 @@ public class SeckillOutboxServiceImpl extends ServiceImpl<VoucherOrderOutboxMapp
             return;
         }
         int deliveredRetry = outbox.getRetryCount() == null ? 0 : outbox.getRetryCount();
-        int deliveredNextRetry = Math.min(deliveredRetry + 1, MAX_PUBLISH_RETRY);
-        int deliveredNextStatus = deliveredNextRetry >= MAX_PUBLISH_RETRY ? STATUS_DEAD : STATUS_NEW;
+        // Confirm may win the race and reset retry_count to 0 before the return callback arrives.
+        // Keep using the publish-time retry snapshot so unroutable messages still progress toward DEAD.
         update()
-                .set("status", deliveredNextStatus)
-                .set("retry_count", deliveredNextRetry)
+                .set("status", nextStatus)
+                .set("retry_count", nextRetry)
                 .set("last_error", reason == null ? "" : reason.substring(0, Math.min(reason.length(), 250)))
                 .set("next_retry_time", now.plusSeconds(backoffSeconds))
                 .set("updated_at", now)
