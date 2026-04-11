@@ -18,6 +18,18 @@ spring:
         max-idle: 10
         min-idle: 1
         time-between-eviction-runs: 10s
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        default-requeue-rejected: false
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
 mybatis-plus:
@@ -40,6 +52,13 @@ management:
       percentiles-histogram:
         hmdp.seckill.order.create: true
         hmdp.shop.query: true
+hmdp:
+  seckill:
+    outbox:
+      publish-batch-size: 100
+      publish-delay-ms: 500
+    dlq:
+      max-replay: 3
 logging:
   level:
     com.hmdp: debug

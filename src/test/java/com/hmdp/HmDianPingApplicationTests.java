@@ -46,7 +46,7 @@ import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 class HmDianPingApplicationTests {
 
     private static final int NEW_USER_COUNT = 500;
-    private static final int TOKEN_TOTAL_COUNT = 5000;
+    private static final int TOKEN_TOTAL_COUNT = 1000;
     private static final Path TOKEN_FILE_PATH = Paths.get("src", "test", "resources", "token.csv");
 
     @Resource
