@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
+import com.hmdp.limiter.annotation.RateLimiter;
 import com.hmdp.service.IShopService;
 import com.hmdp.utils.SystemConstants;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +34,13 @@ public class ShopController {
      * @return 商铺详情数据
      */
     @GetMapping("/{id}")
+    @RateLimiter(
+            key = "shop:query:id",
+            window = 1,
+            limit = 5,
+            message = "查询过于频繁，请稍后再试",
+            type = RateLimiter.LimitType.IP
+    )
     public Result queryShopById(@PathVariable("id") Long id) {
         return shopService.queryById(id);
         //return Result.ok(shopService.getById(id));
