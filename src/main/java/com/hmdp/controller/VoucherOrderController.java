@@ -23,8 +23,8 @@ public class VoucherOrderController {
     @Resource
     private IVoucherOrderService voucherOrderService;
 
-    @GetMapping("seckill/{id}")
-//    @PostMapping("seckill/{id}")
+//    @GetMapping("seckill/{id}")
+    @PostMapping("seckill/{id}")
     @RateLimiter(
             key = "seckill:global",
             window = 10,
